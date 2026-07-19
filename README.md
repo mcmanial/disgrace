@@ -1,2 +1,5 @@
 # disgrace
-Chat app
+
+A chat app.
+
+## Rust postges backend
