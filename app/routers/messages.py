@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -11,6 +11,7 @@ from app.models import Message, Reaction, User
 from app.schemas import MessageEdit, MessageOut, ReactionOut, ReactionToggle, ReplySnippet
 
 router = APIRouter(prefix="/api/rooms", tags=["messages"], dependencies=[Depends(get_current_user)])
+search_router = APIRouter(prefix="/api/messages", tags=["search"], dependencies=[Depends(get_current_user)])
 
 
 def _serialize(m: Message) -> MessageOut:
@@ -152,3 +153,34 @@ async def toggle_reaction(
         select(Message).where(Message.id == message_id).options(*_query_options())
     )
     return _serialize(msg)
+
+
+@search_router.get("/search", response_model=list[MessageOut])
+async def search_messages(
+    q: str | None = None,
+    from_user: str | None = None,
+    in_channel: int | None = None,
+    has: str | None = None,
+    mentions: str | None = None,
+    limit: int = 25,
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(Message).options(*_query_options())
+
+    if q:
+        query = query.where(Message.body.ilike(f"%{q}%"))
+    if in_channel:
+        query = query.where(Message.room_id == in_channel)
+    if from_user:
+        query = query.join(Message.user).where(User.name.ilike(f"%{from_user}%"))
+    if has == "link":
+        query = query.where(or_(
+            Message.body.ilike("%http://%"),
+            Message.body.ilike("%https://%"),
+        ))
+    if mentions:
+        query = query.where(Message.body.ilike(f"%@{mentions}%"))
+
+    query = query.order_by(Message.id.desc()).limit(limit)
+    result = await db.scalars(query)
+    return [_serialize(m) for m in result.all()]

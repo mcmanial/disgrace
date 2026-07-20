@@ -123,7 +123,22 @@
         <!-- Channel header -->
         <div class="flex-shrink-0 h-12 border-b border-base-300 flex items-center px-4 gap-2 shadow-sm">
           <span class="text-base-content/50 font-bold text-lg">#</span>
-          <span id="room-title" class="font-semibold text-base"></span>
+          <span id="room-title" class="font-semibold text-base flex-1"></span>
+          <!-- Search bar -->
+          <div id="search-wrap" class="relative flex-shrink-0">
+            <div id="search-bar" class="flex items-center bg-base-200 rounded-lg pl-3 pr-1 gap-1.5 h-8 min-w-[200px]">
+              <svg class="w-3.5 h-3.5 opacity-40 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              <div id="search-chips" class="flex items-center gap-1"></div>
+              <input id="search-input" type="text" placeholder="Search Disgrace"
+                class="bg-transparent py-0 text-sm outline-none placeholder-base-content/40 min-w-[80px] flex-1 h-full"
+                autocomplete="off"
+                oninput="onSearchInput()"
+                onkeydown="onSearchKeydown(event)"
+                onfocus="onSearchFocus()" />
+              <button id="search-x" type="button" class="hidden btn btn-ghost btn-xs btn-square opacity-50 hover:opacity-100"
+                onmousedown="event.preventDefault()" onclick="closeSearch()">✕</button>
+            </div>
+          </div>
         </div>
 
         <!-- Messages -->
@@ -168,7 +183,12 @@
 
     </main>
 
-    <!-- Toast notifications -->
+    <!-- Search dropdown (fixed, positioned by JS) -->
+  <div id="search-dropdown" class="hidden fixed z-50 bg-base-100 border border-base-300 rounded-xl shadow-2xl overflow-hidden" style="width:380px">
+    <div id="search-dropdown-body" class="overflow-y-auto" style="max-height:480px"></div>
+  </div>
+
+  <!-- Toast notifications -->
     <div class="toast toast-top toast-end z-50">
       <div id="settings-success" class="alert alert-success hidden"><span></span></div>
     </div>
@@ -1095,6 +1115,391 @@
       } catch (err) {
         errEl.querySelector("span").textContent = err.message;
         errEl.classList.remove("hidden");
+      }
+    });
+
+    // ------------------------------------------------------------------
+    // Search
+    // ------------------------------------------------------------------
+    const SEARCH_HISTORY_KEY = "disgrace_search_history";
+    const MAX_HISTORY = 10;
+
+    let _searchFilters = {};
+    let _searchDebounce = null;
+
+    const SEARCH_PREFIXES = [
+      { prefix: "from: ",     key: "from_user",  label: "from"     },
+      { prefix: "in: ",       key: "in_channel", label: "in"       },
+      { prefix: "mentions: ", key: "mentions",   label: "mentions" },
+      { prefix: "has: ",      key: "has",        label: "has"      },
+    ];
+
+    function _parseInput(raw) {
+      for (const { prefix, key } of SEARCH_PREFIXES) {
+        if (raw.startsWith(prefix)) return { key, value: raw.slice(prefix.length) };
+      }
+      return { key: "q", value: raw };
+    }
+
+    function _positionDropdown() {
+      const wrap = document.getElementById("search-wrap");
+      if (!wrap) return;
+      const rect = wrap.getBoundingClientRect();
+      const dd = $("#search-dropdown");
+      dd.style.top  = (rect.bottom + 6) + "px";
+      // right-align with the search bar
+      const ddW = 380;
+      dd.style.left = Math.max(8, rect.right - ddW) + "px";
+    }
+
+    function openSearch() {
+      _positionDropdown();
+      $("#search-dropdown").classList.remove("hidden");
+      $("#search-x").classList.remove("hidden");
+      _renderDropdown();
+    }
+
+    function closeSearch() {
+      $("#search-dropdown").classList.add("hidden");
+      $("#search-x").classList.add("hidden");
+      $("#search-input").value = "";
+      $("#search-input").blur();
+      _searchFilters = {};
+      _renderChips();
+      clearTimeout(_searchDebounce);
+    }
+
+    function onSearchFocus() {
+      openSearch();
+    }
+
+    function onSearchKeydown(e) {
+      if (e.key === "Escape") {
+        const raw = $("#search-input").value;
+        if (raw) {
+          $("#search-input").value = "";
+          _renderDropdown();
+        } else {
+          closeSearch();
+        }
+        return;
+      }
+      if (e.key === "Backspace" && !$("#search-input").value) {
+        // Remove last chip on backspace when input is empty
+        const keys = Object.keys(_searchFilters);
+        if (keys.length) { delete _searchFilters[keys[keys.length - 1]]; _renderChips(); _renderDropdown(); }
+        return;
+      }
+      if (e.key === "Enter") {
+        const raw = $("#search-input").value.trim();
+        if (!raw) return;
+        const { key, value } = _parseInput(raw);
+        if (value) { _commitFilter(key, value); $("#search-input").value = ""; _renderDropdown(); }
+      }
+    }
+
+    function onSearchInput() {
+      clearTimeout(_searchDebounce);
+      _renderDropdown();
+      const raw = $("#search-input").value.trim();
+      const { key, value } = _parseInput(raw);
+      if (value || Object.keys(_searchFilters).length) {
+        _searchDebounce = setTimeout(_runSearchAndRender, 300);
+      }
+    }
+
+    // ── Dropdown renderer ──────────────────────────────────────────────────
+    function _renderDropdown() {
+      _positionDropdown();
+      const body = $("#search-dropdown-body");
+      body.innerHTML = "";
+      const raw = $("#search-input").value;
+      const trimmed = raw.trim();
+      const { key, value } = _parseInput(trimmed);
+
+      // After a recognised prefix: show entity list (channels / users)
+      if (key === "in_channel") { _renderChannelList(body, value); return; }
+      if (key === "from_user" || key === "mentions") { _renderUserList(body, value, key); return; }
+      if (key === "has") { _renderHasList(body, value); return; }
+
+      // No prefix typed — show filter options + history (or "Search for" preview)
+      if (!trimmed) {
+        _renderFilterOptions(body);
+        _renderHistory(body);
+        return;
+      }
+
+      // Plain text query — show "Search for X" row (results fill in after debounce)
+      _renderSearchForRow(body, "q", trimmed);
+    }
+
+    function _renderFilterOptions(body) {
+      const section = document.createElement("div");
+      section.className = "px-4 pt-3 pb-1";
+      section.innerHTML = '<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-2">Filters</p>';
+      const rows = [
+        { key: "from_user",  icon: "user",    title: "From a specific user",        hint: "from: user"    },
+        { key: "in_channel", icon: "hash",    title: "Sent in a specific channel",  hint: "in: channel"   },
+        { key: "has",        icon: "link",    title: "Includes a link",             hint: "has: link"     },
+        { key: "mentions",   icon: "at",      title: "Mentions a specific user",    hint: "mentions: user"},
+      ];
+      const icons = {
+        user: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>',
+        hash: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"/>',
+        link: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>',
+        at:   '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"/>',
+      };
+      for (const r of rows) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "flex items-center gap-3 w-full px-2 py-2 rounded-lg hover:bg-base-200 text-left";
+        btn.onmousedown = (e) => e.preventDefault();
+        btn.onclick = () => promptFilter(r.key);
+        btn.innerHTML =
+          `<svg class="w-5 h-5 opacity-40 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">${icons[r.icon]}</svg>` +
+          `<div class="flex-1"><div class="text-sm font-medium">${r.title}</div>` +
+          `<div class="text-xs opacity-40"><span class="font-mono">${r.hint.split(":")[0]}:</span>${r.hint.slice(r.hint.indexOf(":") + 1)}</div></div>`;
+        section.appendChild(btn);
+      }
+      body.appendChild(section);
+    }
+
+    function _renderChannelList(body, query) {
+      const matches = state.rooms.filter(r =>
+        !query || r.name.toLowerCase().includes(query.toLowerCase())
+      );
+      const section = document.createElement("div");
+      section.className = "px-4 pt-3 pb-2";
+      section.innerHTML = '<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-2">In Channel</p>';
+      for (const room of matches) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "flex items-center gap-3 w-full px-2 py-2 rounded-lg hover:bg-base-200 text-left";
+        btn.onmousedown = (e) => e.preventDefault();
+        btn.onclick = () => { _commitFilter("in_channel", room.name); $("#search-input").value = ""; _renderDropdown(); };
+        btn.innerHTML =
+          `<span class="text-base-content/40 font-bold text-lg leading-none flex-shrink-0">#</span>` +
+          `<span class="text-sm font-medium">${escapeHtml(room.name)}</span>`;
+        section.appendChild(btn);
+      }
+      if (!matches.length) section.innerHTML += '<p class="text-sm opacity-40 py-2">No channels found</p>';
+      body.appendChild(section);
+    }
+
+    function _renderUserList(body, query, filterKey) {
+      const label = filterKey === "mentions" ? "Mentions" : "From User";
+      const users = Object.values(state.userInfo).filter(u =>
+        !query || u.name.toLowerCase().includes(query.toLowerCase())
+      );
+      const section = document.createElement("div");
+      section.className = "px-4 pt-3 pb-2";
+      section.innerHTML = `<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-2">${label}</p>`;
+      for (const u of users) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "flex items-center gap-3 w-full px-2 py-2 rounded-lg hover:bg-base-200 text-left";
+        btn.onmousedown = (e) => e.preventDefault();
+        btn.onclick = () => { _commitFilter(filterKey, u.name); $("#search-input").value = ""; _renderDropdown(); };
+        btn.innerHTML = avatarHtml(u.name, u.avatar_url, "w-7 h-7 flex-shrink-0") +
+          `<span class="text-sm font-medium">${escapeHtml(u.name)}</span>`;
+        section.appendChild(btn);
+      }
+      if (!users.length) section.innerHTML += '<p class="text-sm opacity-40 py-2">No users found</p>';
+      body.appendChild(section);
+    }
+
+    function _renderHasList(body, query) {
+      const options = [{ value: "link", label: "Link", hint: "Messages containing a URL" }];
+      const matches = options.filter(o => !query || o.value.startsWith(query.toLowerCase()));
+      const section = document.createElement("div");
+      section.className = "px-4 pt-3 pb-2";
+      section.innerHTML = '<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-2">Has</p>';
+      for (const opt of matches) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "flex items-center gap-3 w-full px-2 py-2 rounded-lg hover:bg-base-200 text-left";
+        btn.onmousedown = (e) => e.preventDefault();
+        btn.onclick = () => { _commitFilter("has", opt.value); $("#search-input").value = ""; _renderDropdown(); };
+        btn.innerHTML =
+          `<svg class="w-5 h-5 opacity-40 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>` +
+          `<div><div class="text-sm font-medium">${escapeHtml(opt.label)}</div><div class="text-xs opacity-40">${escapeHtml(opt.hint)}</div></div>`;
+        section.appendChild(btn);
+      }
+      body.appendChild(section);
+    }
+
+    function _renderSearchForRow(body, key, value) {
+      const row = document.createElement("div");
+      row.className = "flex items-center gap-3 px-4 py-3 hover:bg-base-200 cursor-pointer";
+      row.onmousedown = (e) => e.preventDefault();
+      row.onclick = () => { _commitFilter(key, value); $("#search-input").value = ""; _renderDropdown(); };
+      row.innerHTML =
+        `<svg class="w-4 h-4 opacity-40 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>` +
+        `<span class="text-sm opacity-50">Search for</span>` +
+        `<span class="text-sm font-semibold">${escapeHtml(value)}</span>`;
+      body.appendChild(row);
+    }
+
+    function _renderHistory(body) {
+      const history = loadSearchHistory();
+      if (!history.length) return;
+      const section = document.createElement("div");
+      section.className = "border-t border-base-300 px-4 pt-3 pb-2";
+      section.innerHTML = '<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-2">Recent searches</p>';
+      for (const q of history) {
+        const row = document.createElement("div");
+        row.className = "flex items-center gap-3 py-1.5 rounded-lg hover:bg-base-200 cursor-pointer group px-2";
+        row.onmousedown = (e) => e.preventDefault();
+        row.innerHTML =
+          `<svg class="w-4 h-4 opacity-30 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>` +
+          `<span class="flex-1 text-sm truncate">${escapeHtml(q)}</span>` +
+          `<button type="button" class="opacity-0 group-hover:opacity-40 hover:!opacity-100 text-xs px-1" data-q="${escapeHtml(q)}">✕</button>`;
+        row.querySelector("span.flex-1").onclick = () => { _commitFilter("q", q); $("#search-input").value = ""; _renderDropdown(); };
+        row.querySelector("button[data-q]").onmousedown = (e) => e.preventDefault();
+        row.querySelector("button[data-q]").onclick = (e) => { e.stopPropagation(); removeSearchHistory(q); _renderDropdown(); };
+        section.appendChild(row);
+      }
+      body.appendChild(section);
+    }
+
+    // ── Filter chips (inside the search bar) ─────────────────────────────────
+    function _renderChips() {
+      const el = $("#search-chips");
+      el.innerHTML = "";
+      const keyLabels = { q: "text", from_user: "from", in_channel: "in", mentions: "mentions", has: "has" };
+      for (const [key, { label }] of Object.entries(_searchFilters)) {
+        const chip = document.createElement("span");
+        chip.className = "flex items-center gap-0.5 bg-base-300 rounded px-1.5 py-0.5 text-xs whitespace-nowrap";
+        chip.innerHTML =
+          `<span class="opacity-50">${escapeHtml(keyLabels[key] || key)}:</span> ` +
+          `<span class="font-medium">${escapeHtml(label)}</span>` +
+          `<button type="button" class="ml-0.5 opacity-50 hover:opacity-100 text-xs leading-none"
+            onmousedown="event.preventDefault()" onclick="removeFilter('${key}')">✕</button>`;
+        el.appendChild(chip);
+      }
+    }
+
+    // ── Filter commit / remove ────────────────────────────────────────────────
+    function promptFilter(key) {
+      const entry = SEARCH_PREFIXES.find(p => p.key === key);
+      if (!entry) return;
+      const input = $("#search-input");
+      input.value = entry.prefix;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+      _renderDropdown();
+    }
+
+    function addFilter(key, value) { _commitFilter(key, value); }
+
+    function _commitFilter(key, value) {
+      if (!value) return;
+      if (key === "in_channel") {
+        const room = state.rooms.find(r =>
+          r.name.toLowerCase() === value.toLowerCase() || String(r.id) === value
+        );
+        if (!room) { showToast(`Channel "${value}" not found`); return; }
+        _searchFilters[key] = { label: room.name, value: room.id };
+      } else {
+        _searchFilters[key] = { label: value, value };
+      }
+      _renderChips();
+      _runSearchAndRender();
+    }
+
+    function removeFilter(key) {
+      delete _searchFilters[key];
+      _renderChips();
+      const raw = $("#search-input").value.trim();
+      const { value } = _parseInput(raw);
+      if (Object.keys(_searchFilters).length || value) _runSearchAndRender();
+      else _renderDropdown();
+    }
+
+    // ── Search execution ──────────────────────────────────────────────────────
+    async function _runSearchAndRender() {
+      const raw = $("#search-input").value.trim();
+      const { key: liveKey, value: liveVal } = _parseInput(raw);
+      const merged = { ..._searchFilters };
+      if (liveVal && liveKey !== "in_channel" && liveKey !== "from_user" && liveKey !== "mentions" && liveKey !== "has") {
+        merged[liveKey] = { label: liveVal, value: liveVal };
+      }
+
+      const params = new URLSearchParams();
+      if (merged.q)          params.set("q",          merged.q.value);
+      if (merged.from_user)  params.set("from_user",  merged.from_user.value);
+      if (merged.in_channel) params.set("in_channel", merged.in_channel.value);
+      if (merged.mentions)   params.set("mentions",   merged.mentions.value);
+      if (merged.has)        params.set("has",        merged.has.value);
+
+      if (!params.toString()) { _renderDropdown(); return; }
+
+      const body = $("#search-dropdown-body");
+      // Prepend "Search for" row above a spinner
+      body.innerHTML =
+        '<div class="flex justify-center py-6"><span class="loading loading-spinner loading-sm"></span></div>';
+
+      try {
+        const results = await api("GET", `/api/messages/search?${params}`);
+        _renderResultsIntoDropdown(results, merged.q?.value);
+      } catch {
+        body.innerHTML = '<p class="text-sm text-error px-4 py-4">Search failed.</p>';
+      }
+    }
+
+    function _renderResultsIntoDropdown(results, q) {
+      const body = $("#search-dropdown-body");
+      body.innerHTML = "";
+      if (q) saveSearchHistory(q);
+
+      if (!results.length) {
+        body.innerHTML = '<p class="text-sm opacity-40 text-center py-8">No results</p>';
+        return;
+      }
+      const hdr = document.createElement("p");
+      hdr.className = "text-xs opacity-40 px-4 pt-3 pb-1";
+      hdr.textContent = `${results.length} result${results.length !== 1 ? "s" : ""}`;
+      body.appendChild(hdr);
+
+      for (const msg of results) {
+        const room = state.rooms.find(r => r.id === msg.room_id);
+        const roomName = room ? room.name : `room ${msg.room_id}`;
+        const card = document.createElement("div");
+        card.className = "mx-3 mb-2 rounded-lg bg-base-200 p-2.5 cursor-pointer hover:bg-base-300 transition-colors";
+        card.onmousedown = (e) => e.preventDefault();
+        card.onclick = () => { selectRoom(msg.room_id); closeSearch(); };
+        card.innerHTML =
+          `<div class="flex items-center gap-1.5 text-xs opacity-50 mb-1">` +
+            avatarHtml(msg.user_name || "?", msg.user_avatar, "w-4 h-4") +
+            `<span class="font-semibold">${escapeHtml(msg.user_name || "?")}</span>` +
+            `<span>in #${escapeHtml(roomName)}</span>` +
+            `<span class="ml-auto">${fmtTime(msg.created_at)}</span>` +
+          `</div>` +
+          `<p class="text-sm leading-snug">${escapeHtml(msg.body)}</p>`;
+        body.appendChild(card);
+      }
+    }
+
+    // ── History helpers ───────────────────────────────────────────────────────
+    function loadSearchHistory() {
+      try { return JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || "[]"); } catch { return []; }
+    }
+    function saveSearchHistory(q) {
+      const h = loadSearchHistory().filter(x => x !== q);
+      h.unshift(q);
+      localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(h.slice(0, MAX_HISTORY)));
+    }
+    function removeSearchHistory(q) {
+      const h = loadSearchHistory().filter(x => x !== q);
+      localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(h));
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener("mousedown", (e) => {
+      const dd = $("#search-dropdown");
+      const wrap = document.getElementById("search-wrap");
+      if (!dd.classList.contains("hidden") && !dd.contains(e.target) && !wrap.contains(e.target)) {
+        closeSearch();
       }
     });
   </script>
