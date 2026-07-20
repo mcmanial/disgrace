@@ -26,6 +26,14 @@ def _verify(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode(), hashed.encode())
 
 
+@router.get("", response_model=UserOut)
+async def get_session(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return current_user
+
+
 @router.post("/register", response_model=UserOut, status_code=201)
 async def register(payload: RegisterCreate, request: Request, db: AsyncSession = Depends(get_db)):
     existing = await db.scalar(select(User).where(User.name == payload.name))

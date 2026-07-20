@@ -64,13 +64,38 @@ class RoomOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ReactionOut(BaseModel):
+    emoji: str
+    user_id: int
+    user_name: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class ReplySnippet(BaseModel):
+    id: int
+    user_name: str | None = None
+    body: str
+
+
 class MessageOut(BaseModel):
     id: int
     room_id: int
     user_id: int
     user_name: str | None = None
     user_avatar: str | None = None
+    reply_to: ReplySnippet | None = None
     body: str
+    edited_at: datetime | None = None
     created_at: datetime
+    reactions: list[ReactionOut] = []
 
     model_config = {"from_attributes": True}
+
+
+class MessageEdit(BaseModel):
+    body: str
+
+
+class ReactionToggle(BaseModel):
+    emoji: str

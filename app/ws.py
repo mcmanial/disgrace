@@ -4,6 +4,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.db import async_session
 from app.models import Message, Room, User
+from app.routers.messages import _serialize
 
 router = APIRouter()
 
@@ -35,22 +36,8 @@ class RoomConnectionManager:
             {"event": "presence_diff", "payload": {"joins": {}, "leaves": {str(user.id): self._user_info(user)}}},
         )
 
-    async def broadcast_message(self, room_id: int, message: Message, sender: User) -> None:
-        await self._broadcast(
-            room_id,
-            {
-                "event": "new_message",
-                "payload": {
-                    "id": message.id,
-                    "room_id": message.room_id,
-                    "user_id": message.user_id,
-                    "user_name": sender.name,
-                    "user_avatar": sender.avatar_url,
-                    "body": message.body,
-                    "created_at": message.created_at.isoformat(),
-                },
-            },
-        )
+    async def broadcast_event(self, room_id: int, event: str, payload: dict) -> None:
+        await self._broadcast(room_id, {"event": event, "payload": payload})
 
     def _user_info(self, user: User) -> dict:
         return {"name": user.name, "avatar_url": user.avatar_url}
@@ -65,6 +52,10 @@ class RoomConnectionManager:
 
 
 manager = RoomConnectionManager()
+
+
+def _msg_payload(msg: Message) -> dict:
+    return _serialize(msg).model_dump(mode="json")
 
 
 @router.websocket("/ws/rooms/{room_id}")
@@ -90,16 +81,31 @@ async def room_socket(websocket: WebSocket, room_id: int):
             raw = await websocket.receive_text()
             data = json.loads(raw)
             body = data.get("body", "").strip()
+            reply_to_id = data.get("reply_to_id")
             if not body:
                 continue
 
             async with async_session() as db:
-                message = Message(room_id=room_id, user_id=user.id, body=body)
+                from sqlalchemy import select
+                from sqlalchemy.orm import selectinload
+                from app.models import Reaction
+                from app.routers.messages import _query_options
+
+                message = Message(
+                    room_id=room_id,
+                    user_id=user.id,
+                    body=body,
+                    reply_to_id=reply_to_id,
+                )
                 db.add(message)
                 await db.commit()
                 await db.refresh(message)
 
-            await manager.broadcast_message(room_id, message, user)
+                message = await db.scalar(
+                    select(Message).where(Message.id == message.id).options(*_query_options())
+                )
+
+            await manager.broadcast_event(room_id, "new_message", _msg_payload(message))
     except WebSocketDisconnect:
         pass
     finally:
