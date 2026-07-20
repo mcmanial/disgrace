@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Disgrace</title>
+  <!-- No build step: Tailwind (utilities) + DaisyUI (components) via CDN. -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link
+    href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css"
+    rel="stylesheet"
+    type="text/css"
+  />
+</head>
+<body class="bg-base-200">
+  <!-- ===================== LOGIN / REGISTER ===================== -->
+  <section id="auth-view" class="hero min-h-screen">
+    <div class="hero-content">
+      <div class="card w-96 bg-base-100 shadow-xl">
+        <div class="card-body">
+          <h1 class="card-title text-2xl">Disgrace</h1>
+
+          <div role="tablist" class="tabs tabs-bordered mt-1">
+            <a id="tab-login" role="tab" class="tab tab-active" onclick="switchTab('login')">Sign in</a>
+            <a id="tab-register" role="tab" class="tab" onclick="switchTab('register')">Register</a>
+          </div>
+
+          <!-- Both forms always in DOM so Chrome can see all password fields -->
+          <div id="login-panel" style="overflow:hidden">
+            <form id="login-form" class="mt-3 flex flex-col gap-3" action="/api/session/login" method="post">
+              <input id="login-name" name="username" type="text" placeholder="Username"
+                class="input input-bordered w-full" autocomplete="username" required />
+              <div class="relative">
+                <input id="login-password" name="password" type="password" placeholder="Password"
+                  class="input input-bordered w-full pr-10" autocomplete="current-password" required />
+                <button type="button" tabindex="-1" onclick="togglePassword('login-password', this)"
+                  class="absolute inset-y-0 right-0 flex items-center px-3 text-base-content/40 hover:text-base-content">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                </button>
+              </div>
+              <button type="submit" class="btn btn-primary w-full">Sign in</button>
+            </form>
+            <div id="login-error" class="alert alert-error mt-2 hidden"><span></span></div>
+          </div>
+
+          <div id="register-panel" style="overflow:hidden;height:0;visibility:hidden">
+            <form id="register-form" class="mt-3 flex flex-col gap-3" action="/api/session/register" method="post">
+              <input id="register-name" name="username" type="text" placeholder="Choose a username"
+                class="input input-bordered w-full" autocomplete="username" required />
+              <div class="relative">
+                <input id="register-password" name="password" type="password" placeholder="Choose a password"
+                  class="input input-bordered w-full pr-10" autocomplete="new-password" required />
+                <button type="button" tabindex="-1" onclick="togglePassword('register-password', this)"
+                  class="absolute inset-y-0 right-0 flex items-center px-3 text-base-content/40 hover:text-base-content">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                </button>
+              </div>
+              <ul class="text-xs mt-1 space-y-0.5 pl-1">
+                <li id="reg-rule-len"     class="flex items-center gap-1.5 opacity-40 transition-colors"><span class="rule-icon">○</span>8+ characters</li>
+                <li id="reg-rule-letter"  class="flex items-center gap-1.5 opacity-40 transition-colors"><span class="rule-icon">○</span>At least one letter</li>
+                <li id="reg-rule-number"  class="flex items-center gap-1.5 opacity-40 transition-colors"><span class="rule-icon">○</span>At least one number</li>
+                <li id="reg-rule-special" class="flex items-center gap-1.5 opacity-40 transition-colors"><span class="rule-icon">○</span>At least one special character</li>
+              </ul>
+              <button type="submit" class="btn btn-primary w-full">Create account</button>
+            </form>
+            <div id="register-error" class="alert alert-error mt-2 hidden"><span></span></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== APP ===================== -->
+  <section id="app-view" class="hidden h-screen flex flex-col">
+    <!-- Top navbar -->
+    <div class="navbar bg-base-100 border-b border-base-300 min-h-0 py-2">
+      <div class="flex-1 px-2 font-semibold">Disgrace</div>
+      <div class="flex-none gap-3 items-center pr-1">
+        <div id="nav-avatar" class="flex items-center gap-2">
+          <!-- populated by showApp() -->
+        </div>
+        <button onclick="openSettings()" class="btn btn-ghost btn-sm">Settings</button>
+        <button id="logout-btn" class="btn btn-ghost btn-sm">Log out</button>
+      </div>
+    </div>
+
+    <div class="flex flex-1 min-h-0">
+      <!-- Sidebar -->
+      <aside class="w-72 bg-base-100 border-r border-base-300 flex flex-col min-h-0">
+        <div class="p-3">
+          <form id="room-form" class="join w-full">
+            <input
+              id="room-name"
+              type="text"
+              placeholder="New room name"
+              class="input input-bordered input-sm join-item w-full"
+              autocomplete="off"
+              required
+            />
+            <button type="submit" class="btn btn-primary btn-sm join-item">Add</button>
+          </form>
+        </div>
+        <div class="px-3 text-xs uppercase opacity-50 tracking-wide">Rooms</div>
+        <ul id="room-list" class="menu menu-sm flex-1 overflow-y-auto flex-nowrap"></ul>
+
+        <div class="border-t border-base-300 p-3">
+          <div class="text-xs uppercase opacity-50 tracking-wide mb-2">
+            Online <span id="presence-count" class="badge badge-ghost badge-xs"></span>
+          </div>
+          <ul id="presence-list" class="space-y-1.5 text-sm"></ul>
+        </div>
+      </aside>
+
+      <!-- Chat column -->
+      <main class="flex-1 flex flex-col min-h-0 bg-base-200">
+        <!-- Empty state -->
+        <div id="no-room" class="flex-1 flex items-center justify-center opacity-50">
+          Select or create a room to start chatting.
+        </div>
+
+        <!-- Active room -->
+        <div id="room-view" class="hidden flex-1 flex flex-col min-h-0">
+          <div class="navbar bg-base-100 border-b border-base-300 min-h-0 py-2 px-4">
+            <span class="font-semibold"># <span id="room-title"></span></span>
+          </div>
+
+          <div id="messages" class="flex-1 overflow-y-auto py-4 space-y-0.5"></div>
+
+          <form id="message-form" class="p-3 bg-base-100 border-t border-base-300 flex gap-2">
+            <input
+              id="message-input"
+              type="text"
+              placeholder="Message…"
+              class="input input-bordered flex-1"
+              autocomplete="off"
+            />
+            <button type="submit" class="btn btn-primary">Send</button>
+          </form>
+        </div>
+      </main>
+    </div>
+
+    <!-- Toast notifications -->
+    <div class="toast toast-top toast-end z-50">
+      <div id="settings-success" class="alert alert-success hidden"><span></span></div>
+    </div>
+
+    <!-- Settings modal -->
+    <dialog id="settings-modal" class="modal">
+      <div class="modal-box w-full max-w-md">
+        <h3 class="font-bold text-lg mb-4">Settings</h3>
+
+        <div role="tablist" class="tabs tabs-bordered mb-4">
+          <a id="stab-avatar" role="tab" class="tab tab-active" onclick="switchSettingsTab('avatar')">Avatar</a>
+          <a id="stab-password" role="tab" class="tab" onclick="switchSettingsTab('password')">Password</a>
+        </div>
+
+        <!-- Avatar tab -->
+        <div id="spanel-avatar">
+          <div class="flex flex-col gap-4">
+            <div class="flex items-center gap-4">
+              <div id="avatar-preview" class="flex-shrink-0"></div>
+              <div class="text-sm opacity-60">Paste an image URL below. Leave blank to use your initials.</div>
+            </div>
+            <input id="avatar-url-input" type="url" placeholder="https://example.com/photo.jpg"
+              class="input input-bordered w-full" autocomplete="off" />
+            <div id="avatar-error" class="alert alert-error hidden"><span></span></div>
+            <div class="flex justify-end gap-2">
+              <button type="button" class="btn btn-ghost" onclick="document.getElementById('settings-modal').close()">Cancel</button>
+              <button type="button" class="btn btn-primary" onclick="saveAvatar()">Save avatar</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Password tab -->
+        <div id="spanel-password" style="overflow:hidden;height:0;visibility:hidden">
+          <form id="change-password-form" class="flex flex-col gap-3" onsubmit="return false;">
+            <div class="relative">
+              <input id="cp-current" name="current_password" type="password" placeholder="Current password"
+                class="input input-bordered w-full pr-10" autocomplete="current-password" required />
+              <button type="button" tabindex="-1" onclick="togglePassword('cp-current', this)"
+                class="absolute inset-y-0 right-0 flex items-center px-3 text-base-content/40 hover:text-base-content">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              </button>
+            </div>
+            <div class="relative">
+              <input id="cp-new" name="new_password" type="password" placeholder="New password"
+                class="input input-bordered w-full pr-10" autocomplete="new-password" required />
+              <button type="button" tabindex="-1" onclick="togglePassword('cp-new', this)"
+                class="absolute inset-y-0 right-0 flex items-center px-3 text-base-content/40 hover:text-base-content">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              </button>
+            </div>
+            <ul class="text-xs mt-1 space-y-0.5 pl-1">
+              <li id="cp-rule-len"     class="flex items-center gap-1.5 opacity-40 transition-colors"><span class="rule-icon">○</span>8+ characters</li>
+              <li id="cp-rule-letter"  class="flex items-center gap-1.5 opacity-40 transition-colors"><span class="rule-icon">○</span>At least one letter</li>
+              <li id="cp-rule-number"  class="flex items-center gap-1.5 opacity-40 transition-colors"><span class="rule-icon">○</span>At least one number</li>
+              <li id="cp-rule-special" class="flex items-center gap-1.5 opacity-40 transition-colors"><span class="rule-icon">○</span>At least one special character</li>
+            </ul>
+            <div id="cp-error" class="alert alert-error hidden"><span></span></div>
+            <div class="flex justify-end gap-2">
+              <button type="button" class="btn btn-ghost" onclick="document.getElementById('settings-modal').close()">Cancel</button>
+              <button type="submit" class="btn btn-primary">Update password</button>
+            </div>
+          </form>
+        </div>
+
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+  </section>
+
+  <script>
+    // ------------------------------------------------------------------
+    // Password rule checklist
+    // ------------------------------------------------------------------
+    const PW_RULES = [
+      { id: "len",     test: v => v.length >= 8 },
+      { id: "letter",  test: v => /[A-Za-z]/.test(v) },
+      { id: "number",  test: v => /\d/.test(v) },
+      { id: "special", test: v => /[^A-Za-z0-9]/.test(v) },
+    ];
+
+    function validatePwRules(value, prefix) {
+      for (const rule of PW_RULES) {
+        const li = document.getElementById(`${prefix}-rule-${rule.id}`);
+        if (!li) continue;
+        const passing = rule.test(value);
+        li.querySelector(".rule-icon").textContent = passing ? "●" : "○";
+        li.classList.toggle("opacity-40", !passing);
+        li.classList.toggle("text-success", passing);
+      }
+    }
+
+    function allRulesPass(value) {
+      return PW_RULES.every(r => r.test(value));
+    }
+
+    function togglePassword(inputId, btn) {
+      const input = document.getElementById(inputId);
+      const isPassword = input.type === "password";
+      input.type = isPassword ? "text" : "password";
+      btn.querySelector("svg").innerHTML = isPassword
+        ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.477 0 8.268 2.943 9.542 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>'
+        : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>';
+    }
+
+    // ------------------------------------------------------------------
+    // State
+    // ------------------------------------------------------------------
+    const state = {
+      user: null,           // { id, name, avatar_url }
+      rooms: [],
+      currentRoomId: null,
+      socket: null,
+      userInfo: {},         // { [userId]: { name, avatar_url } }
+      presence: {},         // { [userId]: { name, avatar_url } } for current room
+    };
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+    const $ = (sel) => document.querySelector(sel);
+
+    async function api(method, path, body) {
+      const opts = { method, headers: {} };
+      if (body !== undefined) {
+        opts.headers["Content-Type"] = "application/json";
+        opts.body = JSON.stringify(body);
+      }
+      const res = await fetch(path, opts);
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail.detail || `${res.status} ${res.statusText}`);
+      }
+      return res.status === 204 ? null : res.json();
+    }
+
+    function infoFor(userId) {
+      return state.userInfo[userId] || state.userInfo[String(userId)] || { name: `User ${userId}`, avatar_url: null };
+    }
+
+    function fmtTime(iso) {
+      const d = new Date(iso);
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+
+    function scrollMessagesToBottom() {
+      const el = $("#messages");
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement("div");
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    // Returns an HTML string for an avatar circle.
+    // size: Tailwind w/h classes, e.g. "w-10 h-10" or "w-7 h-7"
+    function avatarHtml(name, avatarUrl, size = "w-10 h-10") {
+      if (avatarUrl) {
+        return `<img src="${escapeHtml(avatarUrl)}" class="${size} rounded-full object-cover flex-shrink-0" alt="" />`;
+      }
+      const initial = (name || "?")[0].toUpperCase();
+      return `<div class="${size} rounded-full bg-primary text-primary-content flex items-center justify-center font-bold flex-shrink-0 text-sm select-none">${escapeHtml(initial)}</div>`;
+    }
+
+    function showToast(message) {
+      const el = $("#settings-success");
+      el.querySelector("span").textContent = message;
+      el.classList.remove("hidden");
+      setTimeout(() => el.classList.add("hidden"), 3000);
+    }
+
+    // ------------------------------------------------------------------
+    // Rendering
+    // ------------------------------------------------------------------
+    function renderRooms() {
+      const list = $("#room-list");
+      list.innerHTML = "";
+      for (const room of state.rooms) {
+        const li = document.createElement("li");
+        const a = document.createElement("a");
+        a.textContent = "# " + room.name;
+        if (room.id === state.currentRoomId) a.classList.add("active");
+        a.onclick = () => selectRoom(room.id);
+        li.appendChild(a);
+        list.appendChild(li);
+      }
+    }
+
+    function renderPresence() {
+      const ids = Object.keys(state.presence);
+      $("#presence-count").textContent = ids.length;
+      const list = $("#presence-list");
+      list.innerHTML = "";
+      for (const id of ids) {
+        const info = state.presence[id];
+        const li = document.createElement("li");
+        li.className = "flex items-center gap-2";
+        li.innerHTML =
+          '<div class="relative flex-shrink-0">' +
+          avatarHtml(info.name, info.avatar_url, "w-7 h-7") +
+          '<span class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-success border-2 border-base-100"></span>' +
+          '</div>' +
+          `<span class="truncate">${escapeHtml(info.name)}</span>`;
+        list.appendChild(li);
+      }
+    }
+
+    function appendMessage(msg) {
+      // msg may have user_name/user_avatar (from REST or WS), or we fall back to userInfo cache
+      const name = msg.user_name || infoFor(msg.user_id).name;
+      const avatarUrl = msg.user_avatar !== undefined ? msg.user_avatar : infoFor(msg.user_id).avatar_url;
+
+      // Learn/update user info from message
+      if (msg.user_id != null) {
+        state.userInfo[String(msg.user_id)] = { name, avatar_url: avatarUrl };
+      }
+
+      const wrap = document.createElement("div");
+      wrap.className = "flex gap-3 px-4 py-1 hover:bg-base-300/20 rounded group";
+      wrap.innerHTML =
+        avatarHtml(name, avatarUrl, "w-10 h-10 mt-0.5") +
+        '<div class="flex-1 min-w-0">' +
+          '<div class="flex items-baseline gap-2">' +
+            '<span class="font-semibold text-sm">' + escapeHtml(name) + '</span>' +
+            '<time class="text-xs opacity-40">' + fmtTime(msg.created_at) + '</time>' +
+          '</div>' +
+          '<p class="text-sm leading-relaxed break-words">' + escapeHtml(msg.body) + '</p>' +
+        '</div>';
+      $("#messages").appendChild(wrap);
+    }
+
+    function refreshNavAvatar() {
+      const u = state.user;
+      if (!u) return;
+      $("#nav-avatar").innerHTML =
+        avatarHtml(u.name, u.avatar_url, "w-8 h-8") +
+        `<span class="text-sm font-medium">${escapeHtml(u.name)}</span>`;
+    }
+
+    // ------------------------------------------------------------------
+    // Rooms + messages
+    // ------------------------------------------------------------------
+    async function loadRooms() {
+      state.rooms = await api("GET", "/api/rooms");
+      renderRooms();
+    }
+
+    async function selectRoom(roomId) {
+      if (state.currentRoomId === roomId) return;
+      state.currentRoomId = roomId;
+      const room = state.rooms.find((r) => r.id === roomId);
+
+      $("#no-room").classList.add("hidden");
+      $("#room-view").classList.remove("hidden");
+      $("#room-title").textContent = room ? room.name : roomId;
+      $("#messages").innerHTML = "";
+      state.presence = {};
+      renderPresence();
+      renderRooms();
+
+      const history = await api("GET", `/api/rooms/${roomId}/messages?limit=50`);
+      for (const m of history) appendMessage(m);
+      scrollMessagesToBottom();
+
+      openSocket(roomId);
+    }
+
+    // ------------------------------------------------------------------
+    // WebSocket
+    // ------------------------------------------------------------------
+    function openSocket(roomId) {
+      if (state.socket) {
+        state.socket.onclose = null;
+        state.socket.close();
+      }
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(`${proto}//${location.host}/ws/rooms/${roomId}`);
+      state.socket = ws;
+
+      ws.onmessage = (event) => {
+        const { event: type, payload } = JSON.parse(event.data);
+        if (type === "presence_state") {
+          state.presence = payload;
+          for (const [id, info] of Object.entries(payload)) state.userInfo[id] = info;
+          renderPresence();
+        } else if (type === "presence_diff") {
+          for (const [id, info] of Object.entries(payload.joins || {})) {
+            state.presence[id] = info;
+            state.userInfo[id] = info;
+          }
+          for (const id of Object.keys(payload.leaves || {})) delete state.presence[id];
+          renderPresence();
+        } else if (type === "new_message") {
+          appendMessage(payload);
+          scrollMessagesToBottom();
+        }
+      };
+
+      ws.onopen = () => console.log("[ws] open, readyState:", ws.readyState);
+      ws.onerror = (e) => console.error("[ws] error", e);
+      ws.onclose = (e) => {
+        console.log("[ws] closed, code:", e.code, "reason:", e.reason);
+        if (e.code === 4401) alert("Session expired — please log in again.");
+      };
+    }
+
+    // ------------------------------------------------------------------
+    // Auth / view switching
+    // ------------------------------------------------------------------
+    function showView(id) {
+      ["auth-view", "app-view"].forEach(v =>
+        $("#" + v).classList.toggle("hidden", v !== id)
+      );
+    }
+
+    function switchTab(tab) {
+      const isLogin = tab === "login";
+      $("#tab-login").classList.toggle("tab-active", isLogin);
+      $("#tab-register").classList.toggle("tab-active", !isLogin);
+      for (const [id, active] of [["login-panel", isLogin], ["register-panel", !isLogin]]) {
+        const el = $("#" + id);
+        el.style.height = active ? "" : "0";
+        el.style.visibility = active ? "" : "hidden";
+      }
+      $("#login-error").classList.add("hidden");
+      $("#register-error").classList.add("hidden");
+    }
+
+    function showApp() {
+      showView("app-view");
+      refreshNavAvatar();
+    }
+
+    async function handleAuth(endpoint, name, password, errElId) {
+      const errEl = $("#" + errElId);
+      errEl.classList.add("hidden");
+      try {
+        state.user = await api("POST", endpoint, { name, password });
+        state.userInfo[String(state.user.id)] = { name: state.user.name, avatar_url: state.user.avatar_url };
+        showApp();
+        await loadRooms();
+      } catch (err) {
+        errEl.querySelector("span").textContent = err.message;
+        errEl.classList.remove("hidden");
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Settings modal
+    // ------------------------------------------------------------------
+    function openSettings() {
+      // Populate avatar URL input with current value
+      $("#avatar-url-input").value = state.user.avatar_url || "";
+      refreshAvatarPreview();
+      $("#avatar-error").classList.add("hidden");
+      $("#cp-error").classList.add("hidden");
+      document.getElementById("settings-modal").showModal();
+    }
+
+    function switchSettingsTab(tab) {
+      const isAvatar = tab === "avatar";
+      $("#stab-avatar").classList.toggle("tab-active", isAvatar);
+      $("#stab-password").classList.toggle("tab-active", !isAvatar);
+      for (const [id, active] of [["spanel-avatar", isAvatar], ["spanel-password", !isAvatar]]) {
+        const el = $("#" + id);
+        el.style.height = active ? "" : "0";
+        el.style.visibility = active ? "" : "hidden";
+        el.style.overflow = active ? "" : "hidden";
+      }
+    }
+
+    function refreshAvatarPreview() {
+      const url = $("#avatar-url-input").value.trim() || null;
+      $("#avatar-preview").innerHTML = avatarHtml(state.user.name, url, "w-16 h-16");
+    }
+
+    async function saveAvatar() {
+      const errEl = $("#avatar-error");
+      errEl.classList.add("hidden");
+      const url = $("#avatar-url-input").value.trim() || null;
+      try {
+        const updated = await api("PATCH", "/api/session/avatar", { avatar_url: url });
+        state.user.avatar_url = updated.avatar_url;
+        state.userInfo[String(state.user.id)] = { name: state.user.name, avatar_url: state.user.avatar_url };
+        refreshNavAvatar();
+        document.getElementById("settings-modal").close();
+        showToast("Avatar updated.");
+      } catch (err) {
+        errEl.querySelector("span").textContent = err.message;
+        errEl.classList.remove("hidden");
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Event wiring
+    // ------------------------------------------------------------------
+    $("#login-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = $("#login-name").value.trim();
+      const password = $("#login-password").value;
+      if (!name || !password) return;
+      handleAuth("/api/session/login", name, password, "login-error");
+    });
+
+    $("#register-password").addEventListener("input", () => {
+      validatePwRules($("#register-password").value, "reg");
+    });
+
+    $("#register-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = $("#register-name").value.trim();
+      const password = $("#register-password").value;
+      if (!name || !password) return;
+      if (!allRulesPass(password)) {
+        validatePwRules(password, "reg");
+        return;
+      }
+      handleAuth("/api/session/register", name, password, "register-error");
+    });
+
+    $("#room-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = $("#room-name").value.trim();
+      if (!name) return;
+      const room = await api("POST", "/api/rooms", { name });
+      $("#room-name").value = "";
+      await loadRooms();
+      selectRoom(room.id);
+    });
+
+    $("#message-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const input = $("#message-input");
+      const body = input.value.trim();
+      if (!body || !state.socket || state.socket.readyState !== WebSocket.OPEN) return;
+      state.socket.send(JSON.stringify({ body }));
+      input.value = "";
+    });
+
+    $("#logout-btn").addEventListener("click", async () => {
+      if (state.socket) state.socket.close();
+      await api("DELETE", "/api/session").catch(() => {});
+      location.reload();
+    });
+
+    $("#avatar-url-input").addEventListener("input", refreshAvatarPreview);
+
+    $("#cp-new").addEventListener("input", () => {
+      validatePwRules($("#cp-new").value, "cp");
+    });
+
+    $("#change-password-form").addEventListener("submit", async () => {
+      const errEl = $("#cp-error");
+      errEl.classList.add("hidden");
+      const newPw = $("#cp-new").value;
+      if (!allRulesPass(newPw)) {
+        validatePwRules(newPw, "cp");
+        return;
+      }
+      try {
+        await api("PATCH", "/api/session/password", {
+          current_password: $("#cp-current").value,
+          new_password: newPw,
+        });
+        $("#cp-current").value = "";
+        $("#cp-new").value = "";
+        document.getElementById("settings-modal").close();
+        showToast("Password updated.");
+      } catch (err) {
+        errEl.querySelector("span").textContent = err.message;
+        errEl.classList.remove("hidden");
+      }
+    });
+  </script>
+</body>
+</html>

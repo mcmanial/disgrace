@@ -18,7 +18,23 @@
       "Bash(git merge *)",
       "Bash(gh pr *)",
       "Bash(which gh *)",
-      "Read(//opt/homebrew/bin/**)"
+      "Read(//opt/homebrew/bin/**)",
+      "Bash(uv --version)",
+      "Bash(uv pip *)",
+      "Read(//opt/homebrew/Cellar/uv/0.11.29/bin/**)",
+      "Bash(command -v uv)",
+      "Bash(psql -l)",
+      "Bash(psql -lqt)",
+      "Bash(PGPASSWORD=postgres psql -U postgres -h localhost -d postgres -c \"select 'auth ok' as status;\")",
+      "Bash(PGPASSWORD=postgres createdb -U postgres -h localhost chat_app_dev)",
+      "Bash(uv sync *)",
+      "Bash(uv run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8000/)",
+      "Bash(curl -s -w \"\\\\n[HTTP %{http_code}]\\\\n\" http://localhost:8000/api/rooms)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8000/docs)",
+      "WebSearch",
+      "Bash(curl -s http://localhost:8000/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8000/api/rooms)"
     ]
   }
 }

@@ -22,7 +22,7 @@ class RoomConnectionManager:
         self.rooms[room_id][websocket] = user
         await self._broadcast(
             room_id,
-            {"event": "presence_diff", "payload": {"joins": {str(user.id): {"name": user.name}}, "leaves": {}}},
+            {"event": "presence_diff", "payload": {"joins": {str(user.id): self._user_info(user)}, "leaves": {}}},
             skip=websocket,
         )
 
@@ -32,10 +32,10 @@ class RoomConnectionManager:
             return
         await self._broadcast(
             room_id,
-            {"event": "presence_diff", "payload": {"joins": {}, "leaves": {str(user.id): {"name": user.name}}}},
+            {"event": "presence_diff", "payload": {"joins": {}, "leaves": {str(user.id): self._user_info(user)}}},
         )
 
-    async def broadcast_message(self, room_id: int, message: Message) -> None:
+    async def broadcast_message(self, room_id: int, message: Message, sender: User) -> None:
         await self._broadcast(
             room_id,
             {
@@ -44,14 +44,19 @@ class RoomConnectionManager:
                     "id": message.id,
                     "room_id": message.room_id,
                     "user_id": message.user_id,
+                    "user_name": sender.name,
+                    "user_avatar": sender.avatar_url,
                     "body": message.body,
                     "created_at": message.created_at.isoformat(),
                 },
             },
         )
 
+    def _user_info(self, user: User) -> dict:
+        return {"name": user.name, "avatar_url": user.avatar_url}
+
     def _presence(self, room_id: int) -> dict:
-        return {str(user.id): {"name": user.name} for user in self.rooms.get(room_id, {}).values()}
+        return {str(user.id): self._user_info(user) for user in self.rooms.get(room_id, {}).values()}
 
     async def _broadcast(self, room_id: int, message: dict, skip: WebSocket | None = None) -> None:
         for ws in list(self.rooms.get(room_id, {})):
@@ -66,6 +71,7 @@ manager = RoomConnectionManager()
 async def room_socket(websocket: WebSocket, room_id: int):
     user_id = websocket.session.get("user_id")
     if user_id is None:
+        await websocket.accept()
         await websocket.close(code=4401)
         return
 
@@ -73,6 +79,7 @@ async def room_socket(websocket: WebSocket, room_id: int):
         user = await db.get(User, user_id)
         room = await db.get(Room, room_id)
         if user is None or room is None:
+            await websocket.accept()
             await websocket.close(code=4404)
             return
 
@@ -92,7 +99,7 @@ async def room_socket(websocket: WebSocket, room_id: int):
                 await db.commit()
                 await db.refresh(message)
 
-            await manager.broadcast_message(room_id, message)
+            await manager.broadcast_message(room_id, message, user)
     except WebSocketDisconnect:
         pass
     finally:
