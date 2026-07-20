@@ -161,14 +161,30 @@
           <div class="flex flex-col gap-4">
             <div class="flex items-center gap-4">
               <div id="avatar-preview" class="flex-shrink-0"></div>
-              <div class="text-sm opacity-60">Paste an image URL below. Leave blank to use your initials.</div>
+              <div class="text-sm opacity-60">Upload a photo or paste an image URL. Leave both blank to use your initials.</div>
             </div>
+
+            <!-- Drag-and-drop zone -->
+            <div id="avatar-drop-zone"
+              class="border-2 border-dashed border-base-content/20 rounded-lg p-6 text-center cursor-pointer transition-colors hover:border-primary hover:bg-primary/5"
+              onclick="document.getElementById('avatar-file-input').click()"
+              ondragover="avatarDragOver(event)"
+              ondragleave="avatarDragLeave(event)"
+              ondrop="avatarDrop(event)">
+              <input id="avatar-file-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp" class="hidden" onchange="avatarFileSelected(this)" />
+              <p class="text-sm opacity-60">Drag &amp; drop an image here, or <span class="text-primary underline">browse</span></p>
+              <p class="text-xs opacity-40 mt-1">JPEG, PNG, GIF, WebP · max 5 MB</p>
+            </div>
+
+            <div class="divider text-xs opacity-40 my-0">or paste a URL</div>
+
             <input id="avatar-url-input" type="url" placeholder="https://example.com/photo.jpg"
               class="input input-bordered w-full" autocomplete="off" />
+
             <div id="avatar-error" class="alert alert-error hidden"><span></span></div>
             <div class="flex justify-end gap-2">
               <button type="button" class="btn btn-ghost" onclick="document.getElementById('settings-modal').close()">Cancel</button>
-              <button type="button" class="btn btn-primary" onclick="saveAvatar()">Save avatar</button>
+              <button type="button" id="avatar-save-btn" class="btn btn-primary" onclick="saveAvatar()">Save avatar</button>
             </div>
           </div>
         </div>
@@ -493,13 +509,64 @@
     // ------------------------------------------------------------------
     // Settings modal
     // ------------------------------------------------------------------
+
+    // Holds a File object selected via drop or file picker (takes priority over URL)
+    let _pendingAvatarFile = null;
+
     function openSettings() {
-      // Populate avatar URL input with current value
+      _pendingAvatarFile = null;
       $("#avatar-url-input").value = state.user.avatar_url || "";
+      $("#avatar-file-input").value = "";
+      resetDropZone();
       refreshAvatarPreview();
       $("#avatar-error").classList.add("hidden");
       $("#cp-error").classList.add("hidden");
       document.getElementById("settings-modal").showModal();
+    }
+
+    function resetDropZone() {
+      const dz = $("#avatar-drop-zone");
+      dz.classList.remove("border-primary", "bg-primary/10");
+      dz.querySelector("p").textContent = "Drag & drop an image here, or ";
+      const span = document.createElement("span");
+      span.className = "text-primary underline";
+      span.textContent = "browse";
+      dz.querySelector("p").appendChild(span);
+    }
+
+    function setDropZoneFile(file) {
+      _pendingAvatarFile = file;
+      const dz = $("#avatar-drop-zone");
+      dz.classList.add("border-primary", "bg-primary/10");
+      dz.querySelector("p").textContent = `Selected: ${file.name}`;
+      // Show preview from local file
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        $("#avatar-preview").innerHTML = `<img src="${e.target.result}" class="w-16 h-16 rounded-full object-cover flex-shrink-0" />`;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function avatarDragOver(e) {
+      e.preventDefault();
+      $("#avatar-drop-zone").classList.add("border-primary", "bg-primary/5");
+    }
+
+    function avatarDragLeave(e) {
+      if (!_pendingAvatarFile) {
+        $("#avatar-drop-zone").classList.remove("border-primary", "bg-primary/5");
+      }
+    }
+
+    function avatarDrop(e) {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (file) setDropZoneFile(file);
+    }
+
+    function avatarFileSelected(input) {
+      const file = input.files[0];
+      if (file) setDropZoneFile(file);
     }
 
     function switchSettingsTab(tab) {
@@ -515,16 +582,33 @@
     }
 
     function refreshAvatarPreview() {
+      if (_pendingAvatarFile) return; // file drop already set the preview
       const url = $("#avatar-url-input").value.trim() || null;
       $("#avatar-preview").innerHTML = avatarHtml(state.user.name, url, "w-16 h-16");
     }
 
     async function saveAvatar() {
       const errEl = $("#avatar-error");
+      const btn = $("#avatar-save-btn");
       errEl.classList.add("hidden");
-      const url = $("#avatar-url-input").value.trim() || null;
+      btn.classList.add("loading");
+      btn.disabled = true;
+
       try {
-        const updated = await api("PATCH", "/api/session/avatar", { avatar_url: url });
+        let updated;
+        if (_pendingAvatarFile) {
+          const form = new FormData();
+          form.append("file", _pendingAvatarFile);
+          const res = await fetch("/api/session/avatar/upload", { method: "POST", body: form });
+          if (!res.ok) {
+            const detail = await res.json().catch(() => ({}));
+            throw new Error(detail.detail || `${res.status} ${res.statusText}`);
+          }
+          updated = await res.json();
+        } else {
+          const url = $("#avatar-url-input").value.trim() || null;
+          updated = await api("PATCH", "/api/session/avatar", { avatar_url: url });
+        }
         state.user.avatar_url = updated.avatar_url;
         state.userInfo[String(state.user.id)] = { name: state.user.name, avatar_url: state.user.avatar_url };
         refreshNavAvatar();
@@ -533,6 +617,9 @@
       } catch (err) {
         errEl.querySelector("span").textContent = err.message;
         errEl.classList.remove("hidden");
+      } finally {
+        btn.classList.remove("loading");
+        btn.disabled = false;
       }
     }
 
@@ -588,7 +675,14 @@
       location.reload();
     });
 
-    $("#avatar-url-input").addEventListener("input", refreshAvatarPreview);
+    $("#avatar-url-input").addEventListener("input", () => {
+      if (_pendingAvatarFile) {
+        _pendingAvatarFile = null;
+        $("#avatar-file-input").value = "";
+        resetDropZone();
+      }
+      refreshAvatarPreview();
+    });
 
     $("#cp-new").addEventListener("input", () => {
       validatePwRules($("#cp-new").value, "cp");

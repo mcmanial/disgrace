@@ -54,9 +54,9 @@ wheels = [
 [[package]]
 name = "bcrypt"
 version = "5.0.0"
-source = { registry = "/Users/smcmahon/Downloads/bcrypt-wheel/bcrypt-wheel" }
+source = { registry = "/Users/smcmahon/Downloads/disgrace-wheels/disgrace-wheels" }
 wheels = [
-    { path = "/Users/smcmahon/Downloads/bcrypt-wheel/bcrypt-wheel/bcrypt-5.0.0-cp39-abi3-macosx_10_12_universal2.whl" },
+    { path = "/Users/smcmahon/Downloads/disgrace-wheels/disgrace-wheels/bcrypt-5.0.0-cp39-abi3-macosx_10_12_universal2.whl" },
 ]
 
 [[package]]
@@ -78,6 +78,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "itsdangerous" },
     { name = "pydantic-settings" },
+    { name = "python-multipart" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -98,6 +99,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.139.2" },
     { name = "itsdangerous", specifier = ">=2.2.0" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
+    { name = "python-multipart", specifier = ">=0.0.32" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.51" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.51.0" },
 ]
@@ -332,6 +334,14 @@ version = "1.2.2"
 source = { registry = "/Users/smcmahon/Downloads/disgrace-wheels/disgrace-wheels" }
 wheels = [
     { path = "/Users/smcmahon/Downloads/disgrace-wheels/disgrace-wheels/python_dotenv-1.2.2-py3-none-any.whl" },
+]
+
+[[package]]
+name = "python-multipart"
+version = "0.0.32"
+source = { registry = "/Users/smcmahon/Downloads/disgrace-wheels/disgrace-wheels" }
+wheels = [
+    { path = "/Users/smcmahon/Downloads/disgrace-wheels/disgrace-wheels/python_multipart-0.0.32-py3-none-any.whl" },
 ]
 
 [[package]]

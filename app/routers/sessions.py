@@ -1,5 +1,8 @@
+import secrets
+from pathlib import Path
+
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile, File
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,6 +10,10 @@ from app.db import get_db
 from app.models import User
 from app.auth import get_current_user
 from app.schemas import AvatarUpdate, LoginCreate, PasswordChange, RegisterCreate, UserOut
+
+UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "uploads"
+ALLOWED_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+MAX_SIZE = 5 * 1024 * 1024  # 5 MB
 
 router = APIRouter(prefix="/api/session", tags=["session"])
 
@@ -67,6 +74,35 @@ async def update_avatar(
     current_user: User = Depends(get_current_user),
 ):
     current_user.avatar_url = payload.avatar_url
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
+
+
+@router.post("/avatar/upload", response_model=UserOut)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(status_code=415, detail="Unsupported file type. Use JPEG, PNG, GIF, or WebP.")
+    data = await file.read()
+    if len(data) > MAX_SIZE:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 5 MB.")
+
+    suffix = Path(file.filename or "avatar").suffix.lower() or ".jpg"
+    filename = f"{current_user.id}_{secrets.token_hex(8)}{suffix}"
+    dest = UPLOADS_DIR / filename
+    dest.write_bytes(data)
+
+    # Delete old uploaded avatar if it was a local file
+    if current_user.avatar_url and current_user.avatar_url.startswith("/uploads/"):
+        old = UPLOADS_DIR / Path(current_user.avatar_url).name
+        old.unlink(missing_ok=True)
+
+    current_user.avatar_url = f"/uploads/{filename}"
     db.add(current_user)
     await db.commit()
     await db.refresh(current_user)
