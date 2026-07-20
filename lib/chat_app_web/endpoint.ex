@@ -53,5 +53,6 @@ defmodule ChatAppWeb.Endpoint do
   plug Plug.MethodOverride
   plug Plug.Head
   plug Plug.Session, @session_options
+  plug ChatAppWeb.Plugs.Cors
   plug ChatAppWeb.Router
 end

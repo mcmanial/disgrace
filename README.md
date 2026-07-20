@@ -13,6 +13,10 @@ Backend-only API (see `CLAUDE.md`). Frontend is handled separately.
 
 ## Deployment
 
+For a concrete, from-scratch walkthrough (DigitalOcean Ubuntu droplet,
+Postgres, systemd, nginx + TLS), see [DEPLOY.md](DEPLOY.md). What follows
+here is the general release mechanics any hosting target needs.
+
 Requires a reachable Postgres instance. This app builds as a standard
 [Elixir release](https://hexdocs.pm/mix/Mix.Tasks.Release.html) — no external
 runtime dependencies (Erlang/Elixir are bundled into the release).
