@@ -39,8 +39,8 @@ internet — only nginx is exposed.
 sudo apt update
 sudo apt install -y postgresql
 
-sudo -u postgres createuser --pwprompt chat_app
-sudo -u postgres createdb -O chat_app chat_app_prod
+sudo -u postgres createuser --pwprompt chat_app # chat_app is still the user, and password is 'ducks writing books'
+sudo -u postgres createdb -O chat_app chat_app_prod # db name is actually disgrace
 ```
 
 Note the password you set — it goes into `DATABASE_URL` in step 5.
@@ -62,11 +62,21 @@ source ~/.asdf/asdf.sh
 asdf plugin add erlang
 asdf plugin add elixir
 
+# kerl (which builds Erlang from source) fails the whole build by default
+# if ANY optional application is disabled — e.g. jinterface (needs a JDK)
+# or wx (needs wxWidgets). We don't need Java bindings or a GUI toolkit on
+# a headless server, so tell it not to treat that as fatal:
+export KERL_STRICT_INSTALL=no
+
 cd /path/to/disgrace   # after cloning the repo, see step 4
 asdf install           # reads .tool-versions
 ```
 
 Erlang's build from source takes a while (5-10 minutes) — this is normal.
+If it fails with `ERROR: build failed` right after an "APPLICATIONS
+DISABLED"/"APPLICATIONS INFORMATION" summary (rather than an actual
+compiler error), that's this `KERL_STRICT_INSTALL` behavior — the compile
+itself succeeded, kerl just refused to call it done.
 
 ## 4. Get the code and build a release
 
