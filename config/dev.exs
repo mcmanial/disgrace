@@ -27,7 +27,10 @@ config :chat_app, ChatAppWeb.Endpoint,
   code_reloader: true,
   debug_errors: true,
   secret_key_base: "uTVIfLzo6W10to4ubGiuciUyPUfdlfT+zEVFUf7J4vKLBz2znC2GdzmSx0Rme880",
-  watchers: []
+  watchers: [
+    esbuild: {Esbuild, :install_and_run, [:chat_app, ~w(--sourcemap=inline --watch)]},
+    tailwind: {Tailwind, :install_and_run, [:chat_app, ~w(--watch)]}
+  ]
 
 # ## SSL Support
 #

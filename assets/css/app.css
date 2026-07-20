@@ -1,0 +1,21 @@
+/* See the Tailwind configuration guide for advanced usage
+   https://tailwindcss.com/docs/configuration */
+
+@import "tailwindcss" source(none);
+
+/* Scan these paths for class names. `source(none)` above disables Tailwind's
+   automatic detection so we opt in explicitly — add paths here as the frontend
+   grows (HEEx templates, JS, etc.). */
+@source "../css";
+@source "../js";
+@source "../../lib/chat_app_web";
+
+/* daisyUI — loaded as a plugin from the vendored bundle in assets/vendor.
+   https://daisyui.com/docs/config/ */
+@plugin "../vendor/daisyui" {
+  themes: light --default, dark --prefersdark;
+}
+
+/* Register the daisyUI theme plugin so custom themes can be defined here later.
+   https://daisyui.com/docs/themes/#how-to-add-a-new-custom-theme */
+@plugin "../vendor/daisyui-theme";
