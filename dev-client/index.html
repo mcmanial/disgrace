@@ -1,0 +1,233 @@
+<!--
+  Throwaway dev client for manually exercising the chat_app API.
+  Not part of the Phoenix app and not the real frontend.
+
+  Run it from its own static server (needed so the browser sends a
+  proper Origin header the API's CORS policy can match — opening this
+  file directly via file:// will not work):
+
+      cd dev-client && python3 -m http.server 8080
+
+  Then open http://localhost:8080. The API is assumed to be running at
+  http://localhost:4000 (see API_BASE below).
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>chat_app dev client</title>
+</head>
+<body>
+
+<h1>chat_app dev client</h1>
+<div id="error"></div>
+
+<section>
+  <h2>1. Session</h2>
+  <input id="name-input" placeholder="your name">
+  <button id="login-btn">Log in</button>
+  <button id="logout-btn">Log out</button>
+  <div id="session-status">not logged in</div>
+</section>
+
+<section>
+  <h2>2. Rooms</h2>
+  <input id="room-name-input" placeholder="room name">
+  <button id="create-room-btn">Create room</button>
+  <button id="refresh-rooms-btn">Refresh rooms</button>
+  <ul id="room-list"></ul>
+</section>
+
+<section>
+  <h2>3. Room: <span id="current-room-name">none</span></h2>
+  <div>Online: <span id="presence-list"></span></div>
+  <ul id="message-log"></ul>
+  <input id="message-input" placeholder="message">
+  <button id="send-btn">Send</button>
+  <button id="leave-btn">Leave room</button>
+</section>
+
+<script>
+const API_BASE = "http://localhost:4000";
+const WS_URL = API_BASE.replace(/^http/, "ws") + "/socket/websocket?vsn=2.0.0";
+
+const $ = (id) => document.getElementById(id);
+
+let socket = null;
+let joinRef = null;
+let refCounter = 0;
+let currentRoomId = null;
+let heartbeatTimer = null;
+let presence = {};
+
+function nextRef() {
+  refCounter += 1;
+  return String(refCounter);
+}
+
+function showError(err) {
+  $("error").textContent = String(err.message || err);
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(API_BASE + path, {
+    ...options,
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+  });
+  if (!res.ok && res.status !== 204) {
+    const text = await res.text();
+    throw new Error(`${options.method || "GET"} ${path} -> ${res.status}: ${text}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+$("login-btn").onclick = async () => {
+  try {
+    const name = $("name-input").value.trim();
+    if (!name) return;
+    const user = await api("/api/session", { method: "POST", body: JSON.stringify({ name }) });
+    $("session-status").textContent = `logged in as ${user.name} (id ${user.id})`;
+    await refreshRooms();
+  } catch (err) {
+    showError(err);
+  }
+};
+
+$("logout-btn").onclick = async () => {
+  try {
+    await api("/api/session", { method: "DELETE" });
+    $("session-status").textContent = "not logged in";
+    leaveRoom();
+  } catch (err) {
+    showError(err);
+  }
+};
+
+$("create-room-btn").onclick = async () => {
+  try {
+    const name = $("room-name-input").value.trim();
+    if (!name) return;
+    await api("/api/rooms", { method: "POST", body: JSON.stringify({ name }) });
+    $("room-name-input").value = "";
+    await refreshRooms();
+  } catch (err) {
+    showError(err);
+  }
+};
+
+$("refresh-rooms-btn").onclick = () => refreshRooms().catch(showError);
+
+async function refreshRooms() {
+  const { data: rooms } = await api("/api/rooms");
+  const list = $("room-list");
+  list.innerHTML = "";
+  rooms.forEach((room) => {
+    const li = document.createElement("li");
+    li.textContent = `${room.name} (id ${room.id}) `;
+    const joinBtn = document.createElement("button");
+    joinBtn.textContent = "Join";
+    joinBtn.onclick = () => joinRoom(room.id, room.name).catch(showError);
+    li.appendChild(joinBtn);
+    list.appendChild(li);
+  });
+}
+
+function connectSocket() {
+  if (socket) return Promise.resolve();
+  socket = new WebSocket(WS_URL);
+  socket.onmessage = handleSocketMessage;
+  socket.onclose = () => {
+    socket = null;
+    clearInterval(heartbeatTimer);
+  };
+  socket.onerror = () => showError(new Error("socket error, see console"));
+  return new Promise((resolve) => {
+    socket.onopen = resolve;
+  });
+}
+
+async function joinRoom(roomId, roomName) {
+  leaveRoom();
+  currentRoomId = roomId;
+  $("current-room-name").textContent = `${roomName} (id ${roomId})`;
+
+  await connectSocket();
+  joinRef = nextRef();
+  socket.send(JSON.stringify([joinRef, joinRef, `room:${roomId}`, "phx_join", {}]));
+  startHeartbeat();
+  await loadHistory(roomId);
+}
+
+function leaveRoom() {
+  if (socket && currentRoomId != null && joinRef != null) {
+    socket.send(JSON.stringify([joinRef, nextRef(), `room:${currentRoomId}`, "phx_leave", {}]));
+  }
+  currentRoomId = null;
+  joinRef = null;
+  presence = {};
+  $("current-room-name").textContent = "none";
+  $("presence-list").textContent = "";
+  $("message-log").innerHTML = "";
+}
+
+function startHeartbeat() {
+  clearInterval(heartbeatTimer);
+  heartbeatTimer = setInterval(() => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify([null, nextRef(), "phoenix", "heartbeat", {}]));
+    }
+  }, 30000);
+}
+
+function handleSocketMessage(event) {
+  const [, , topic, evt, payload] = JSON.parse(event.data);
+  if (topic !== `room:${currentRoomId}`) return;
+
+  switch (evt) {
+    case "phx_reply":
+      if (payload.status === "error") showError(new Error(JSON.stringify(payload.response)));
+      break;
+    case "new_message":
+      appendMessage(payload);
+      break;
+    case "presence_state":
+      presence = payload;
+      updatePresenceUI();
+      break;
+    case "presence_diff":
+      Object.keys(payload.leaves).forEach((key) => delete presence[key]);
+      Object.assign(presence, payload.joins);
+      updatePresenceUI();
+      break;
+  }
+}
+
+function updatePresenceUI() {
+  $("presence-list").textContent = Object.values(presence)
+    .map((p) => p.metas[0].name)
+    .join(", ");
+}
+
+function appendMessage(msg) {
+  const li = document.createElement("li");
+  li.textContent = `[user ${msg.user_id}] ${msg.body}`;
+  $("message-log").appendChild(li);
+}
+
+async function loadHistory(roomId) {
+  const { data: messages } = await api(`/api/rooms/${roomId}/messages`);
+  messages.forEach(appendMessage);
+}
+
+$("send-btn").onclick = () => {
+  const body = $("message-input").value.trim();
+  if (!body || !socket || currentRoomId == null) return;
+  socket.send(JSON.stringify([joinRef, nextRef(), `room:${currentRoomId}`, "new_message", { body }]));
+  $("message-input").value = "";
+};
+
+$("leave-btn").onclick = leaveRoom;
+</script>
+</body>
+</html>
